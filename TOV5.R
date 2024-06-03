@@ -9,6 +9,7 @@ library(tibble)
 library(ggrepel)
 library(circlize)
 library(vegan)
+library(ggnewscale)
 
 # need to ask:
 # how to normalize data - recs?
@@ -247,7 +248,7 @@ volcano_plot
 
 #########################
 # EXPORT FILE
-write_xlsx(results_df, path = '~/box/1.GW/Career MODE/OMICS TANZANIA PILOT/vD Metabalomics/R/omics_vD/data_out/omics_results_202405017.xlsx')
+# write_xlsx(results_df, path = '~/box/1.GW/Career MODE/OMICS TANZANIA PILOT/vD Metabalomics/R/omics_vD/data_out/omics_results_202405017.xlsx')
 #########################
 
 ########################
@@ -286,7 +287,6 @@ for (subpathway in subpathway_names) {
 
 
 
-
 ########################
 # CIRCULAR PLOTS
 #######################
@@ -297,31 +297,120 @@ lipids_df <- results_df %>%
   arrange(sub_pathway) %>% 
   mutate(i = row_number())
 
-lipids_df$mean.diff <- unname(lipids_df$mean.diff)
+# Lipids
+lipids_df$mean.diff <- unname(lipids_df$mean.diff) # removes the names
 
 subpathway_df <- lipids_df %>% 
   group_by(sub_pathway) %>% 
   summarize(min_x = min(i), max_x = max(i)) %>%
   left_join(subpathway_pval) %>%
-  mutate(significant = ifelse(pval <= 0.05, "p ≤ 0.05", "p > 0.05"))
+  mutate(significant = ifelse(pval <= 0.05, "p ≤ 0.05", "p > 0.05")) %>%
+  mutate(subpathway_label = ifelse(significant=='p ≤ 0.05', sub_pathway, ""))
+
+# calculate angle
+xmax <- max(subpathway_df$max_x)
+
 
 ggplot() +
   ylim(-1.5, 0.8) + 
-  geom_col(data = lipids_df,
+  geom_col(data = lipids_df, # data coming from lipids_df
            aes(x = i,
                y = mean.diff*1.8,
-               fill = mean.diff)) + # Identity forces the bar plot to not count on it's own. You have to specify what it will be. 
+               fill = mean.diff),# Identity forces the bar plot to not count on it's own. You have to specify what it will be. 
+           color = 'black', linewidth = 0.05) + 
   coord_polar() + 
-  scale_fill_distiller(palette = "Spectral") + 
+  scale_fill_distiller(palette = "Spectral") + # for continuous.
+#  scale_fill_gradient2(low = "blue",
+ #                      mid = "orange",
+  #                     high = "red") + 
   theme_minimal() + 
   theme(legend.position = "none",
         axis.text = element_blank(), 
         axis.title = element_blank(), 
         panel.grid = element_blank()) +
-  geom_rect(data=subpathway_df, 
+  new_scale_fill() + # allows you to use a new color scale fill. 
+  geom_rect(data=subpathway_df, # data coming from subpathway_df
                aes(xmin = min_x-0.1, ymin = -0.9, xmax = max_x+0.1, ymax = -0.8,
-                   color = significant)) +
+                   fill = significant)) +
+  scale_fill_manual(values = c('p > 0.05' = 'lightblue', 'p ≤ 0.05' = 'red')) +
   #geom_vline(data = subpathway_df, aes(xintercept = min_x-0.5))
-  geom_segment(data = subpathway_df, aes(x = min_x-0.5, xend=min_x-0.5, y = -0.9, yend = 0.5), linewidth = 0.1)
+  geom_segment(data = subpathway_df, aes(x = min_x-0.5, xend=min_x-0.5, y = -0.9, yend = 0.5), linewidth = 0.1) + 
+  geom_text(data = subpathway_df, aes(x = 0.5*(min_x + max_x),
+                                      label = subpathway_label,
+                                      angle = 90-0.5*(min_x + max_x)*360/xmax), 
+            y = 0.55,
+            hjust = 0,
+            size = 2) + 
+  geom_text(data = subpathway_df, x = 0, y = -1.45, label = "Lipids")
   
+#############################################
+# Trying to do a loop for all superpathways
+
+results_df2 <- results_df %>% 
+  drop_na(super_pathway) %>%
+  filter(super_pathway!='Xenobiotics') %>%
+  filter(super_pathway!='Partially Characterized Molecules')
+superpathway_list <- unique(results_df2$super_pathway)
+
+for(superpathway in superpathway_list) {
+  superpathway_df <- results_df2 %>% 
+    select(mean.diff, chemical_name.x, super_pathway, sub_pathway, p.value) %>% 
+    filter(super_pathway == superpathway) %>% #superpathway is the looping variable that is in the for()
+    #  filter(p.value<=0.05) %>% # head(20) %>%
+    arrange(sub_pathway) %>% 
+    mutate(i = row_number())
   
+  superpathway_df$mean.diff <- unname(superpathway_df$mean.diff) # removes the names
+  
+  subpathway_df <- superpathway_df %>% 
+    group_by(sub_pathway) %>% 
+    summarize(min_x = min(i), max_x = max(i)) %>%
+    left_join(subpathway_pval) %>%
+    mutate(significant = ifelse(pval <= 0.05, "p ≤ 0.05", "p > 0.05")) %>%
+    mutate(subpathway_label = ifelse(significant=='p ≤ 0.05', sub_pathway, sub_pathway),
+           angle = 90-0.5*(min_x + max_x)*360/max(max_x))
+  
+  # calculate angle
+  xmax <- max(subpathway_df$max_x)
+  
+  #######
+  # ggplot
+  #######
+  
+  p_plot <- ggplot() +
+    ylim(-1.5, 1.0) + 
+    geom_col(data = superpathway_df, # data coming from lipids_df
+             aes(x = i,
+                 y = mean.diff*1.8,
+                 fill = mean.diff),# Identity forces the bar plot to not count on it's own. You have to specify what it will be. 
+             color = 'black', linewidth = 0.05) + 
+    coord_polar() + 
+    scale_fill_distiller(palette = "Spectral") + # for continuous.
+    #  scale_fill_gradient2(low = "blue",
+    #                      mid = "orange",
+    #                     high = "red") + 
+    theme_minimal() + 
+    theme(legend.position = "none",
+          axis.text = element_blank(), 
+          axis.title = element_blank(), 
+          panel.grid = element_blank()) +
+    new_scale_fill() + # allows you to use a new color scale fill. 
+    geom_rect(data=subpathway_df, # data coming from subpathway_df
+              aes(xmin = min_x-0.1, ymin = -0.9, xmax = max_x+0.1, ymax = -0.8,
+                  fill = significant)) +
+    scale_fill_manual(values = c('p > 0.05' = 'lightblue', 'p ≤ 0.05' = 'red')) +
+    #geom_vline(data = subpathway_df, aes(xintercept = min_x-0.5))
+    geom_segment(data = subpathway_df, aes(x = min_x-0.5, xend=min_x-0.5, y = -0.9, yend = 0.5), linewidth = 0.1) + 
+    geom_text(data = subpathway_df, aes(x = 0.5*(min_x + max_x),
+                                        label = subpathway_label,
+                                        angle = ifelse(between(angle, -270, -90), angle+180, angle),
+                                        hjust = ifelse(between(angle, -270, -90), 1, 0)),
+              y = 0.55,
+              size = 1.7) + 
+    geom_text(data = subpathway_df, x = 0, y = -1.45, label = superpathway)
+  
+  ggsave(filename = paste0('plots/',superpathway, '.pdf'), p_plot)
+  
+}
+
+
