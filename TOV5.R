@@ -11,7 +11,7 @@ library(circlize)
 library(vegan)
 library(ggnewscale)
 
-# need to ask:
+# New updates: 
 # how to normalize data - recs?
 # what to do when there are 2 HMDB numbers.  Do I keep the Chem_ID also b/c those are unique. 
 # next steps? 
