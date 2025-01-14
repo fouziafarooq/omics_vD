@@ -63,12 +63,14 @@ results_df <- data.frame()
 for(chem_id in chem_ids){
   x<- peak_full[, chem_id] %>% unlist() # grab one column/chemical of data. 
   #Does this for a single chemical/feature
+  # If there are missing reads in the imputation, this will pick up.
   chem_df <- data.frame(feature_level = x, group = peak_full$TREATMENT)
   na_tab <- table(is.na(x), peak_full$TREATMENT) # b/c there are NAs in the data.
   if(na_tab[1,1]<2 | na_tab[1,2]<2){
     print(paste("Skipping b/c missing chem_id data in chem id:", chem_id))
     next
   }
+  # t-test is checking if there is any different between the two groups for each chemical.
   t_result <- t.test(x ~ peak_full$TREATMENT) # value of chem_id like 35 as a string. 
   mean_diff <- t_result$estimate[2] - t_result$estimate[1] # mean in group 1 minus mean in group 0. 
   # For each chemical compute the mean difference in group 1 vs. group 2. 
@@ -111,6 +113,8 @@ results_df$p.adj <- p.adjust(results_df$p.value, method = "BH")
 
 # VUSUALIZATION
 # Create a subset with checimcal that are the top hit based on p-value (note I am not used p-adjusted atm)
+
+# Make a df of the significant p-values.
 top_pval <- results_df %>% 
   filter(p.value <= 0.05) %>%
   select(chem_id, chemical_name, p.value)
@@ -139,22 +143,26 @@ peak_full_top_long %>%
 ################
 # VOLCANO PLOT:
 ################
+# Each chemical is a dot in this volcano plot.
 volcano_df <- results_df %>% 
   select(mean.diff, p.value, chem_id, chemical_name) %>% 
   rowwise() %>% 
   mutate(neg_log_p_value = -log(p.value, base = 10)) %>% # doing negative log of p-value to get the values to be inverted. 
-  mutate(chem_name_label = ifelse(p.value<0.05 & ((mean.diff < -0.5) | (mean.diff > 0.5)), 
+  # only keeping Lables when this condition is true: 
+  mutate(chem_name_label = ifelse(p.value<0.05 & ((mean.diff < -0.3) | (mean.diff > 0.3)), 
                                    chemical_name, ""))
 
 volcano_plot <- volcano_df %>% 
   ggplot() + 
   geom_text_repel(aes(x = mean.diff, y = neg_log_p_value, label = chem_name_label),
                   min.segment.length = 0) +
-  geom_point(aes(x = mean.diff, y = neg_log_p_value), alpha = 0.5) + # will take the negative log of p-value
+  geom_point(aes(x = mean.diff, y = neg_log_p_value), 
+             alpha = 0.2, size = 1) + # will take the negative log of p-value
  #  geom_text(aes(x = mean.diff, y = neg_log_p_value, label = chem_id), nudge_y = 0.05) + 
   geom_hline(yintercept = -log(0.05, base=10), color = "red", linetype = "dashed") +
   geom_hline(yintercept = -log(0.1, base=10), color = "red", linetype = "dashed") +   # just adding another line. 
-  xlim(-1.2, 1.2)
+  xlim(-1.2, 1.2) + 
+  theme_light()
   
 volcano_plot
 
