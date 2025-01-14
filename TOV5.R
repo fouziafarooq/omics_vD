@@ -1,10 +1,8 @@
 library(BiocManager)
-library(omePath) # chemical to pathways
 library(readxl)
 library(dplyr)
 library(tidyr)
 library(ggplot2)
-library(writexl)
 library(tibble)
 library(ggrepel)
 library(circlize)
@@ -15,13 +13,13 @@ library(ggnewscale)
 # how to normalize data - recs?
 # what to do when there are 2 HMDB numbers.  Do I keep the Chem_ID also b/c those are unique. 
 # next steps? 
-meta_data <- readxl::read_excel("~/box/1.GW/Career MODE/OMICS TANZANIA PILOT/vD Metabalomics/R/omics_vD/data/CHHB-01-21VW+ SERUM DATA TABLES.XLSX",
+meta_data <- readxl::read_excel("data/CHHB-01-21VW+ SERUM DATA TABLES.XLSX",
                                 sheet = "Sample Meta Data")
 
-chem_anno <- read_excel("~/box/1.GW/Career MODE/OMICS TANZANIA PILOT/vD Metabalomics/R/omics_vD/data/CHHB-01-21VW+ SERUM DATA TABLES.XLSX",
+chem_anno <- read_excel("data/CHHB-01-21VW+ SERUM DATA TABLES.XLSX",
                         sheet = "Chemical Annotation")                                
 
-peak_area <- read_excel("~/box/1.GW/Career MODE/OMICS TANZANIA PILOT/vD Metabalomics/R/omics_vD/data/CHHB-01-21VW+ SERUM DATA TABLES.XLSX",
+peak_area <- read_excel("data/CHHB-01-21VW+ SERUM DATA TABLES.XLSX",
                         sheet = "Batch-normalized Data")
 
 # Circular plots:
