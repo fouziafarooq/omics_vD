@@ -1,4 +1,3 @@
-library(BiocManager)
 library(readxl)
 library(dplyr)
 library(tidyr)
@@ -8,6 +7,7 @@ library(ggrepel)
 library(circlize)
 library(vegan)
 library(ggnewscale)
+library(pheatmap)
 
 # New updates: 
 # how to normalize data - recs?
@@ -106,8 +106,10 @@ results_df <- left_join(results_df,
                         chem_anno %>% select(chem_id, chemical_name) %>% 
                           mutate(chem_id = as.character(chem_id)))
 
-# ADJUSTED P-VALUE:
+# ADJUSTED P-VALUE using Benjamini & Hochberg (1995) ("BH" or its alias "fdr")
 results_df$p.adj <- p.adjust(results_df$p.value, method = "BH")
+# These are way overinflated because # of metabolites >> # of samples.
+# So we will use unadjusted p-values.
 
 # VUSUALIZATION
 # Create a subset with checimcal that are the top hit based on p-value (note I am not used p-adjusted atm)
@@ -127,16 +129,27 @@ peak_full_top_long <- peak_full_top %>%
                values_to = "level")
 
 peak_full_top_long <- left_join(peak_full_top_long, 
-                                chem_anno %>% select(chem_id, chemical_name) %>% 
+                                chem_anno %>% select(chem_id, chemical_name, super_pathway) %>% 
                                   mutate(chem_id = as.character(chem_id)), 
                                 by = c("feature" = "chem_id"))
-peak_full_top_long %>% 
+boxplot1 <- peak_full_top_long %>% 
+  mutate(TREATMENT = if_else(TREATMENT == 'G0',
+                             'Placebo',
+                             'Vit. D Supp.')) %>%
   ggplot() + 
   aes(y = chemical_name, 
       x = level,
-      color = TREATMENT) + 
-  geom_boxplot() + 
-  xlim(0, 5)
+      color = TREATMENT,
+      fill = TREATMENT) + 
+  geom_boxplot(alpha = 0.5, outliers = FALSE) +
+  labs(title = 'Boxplots of log(peak area) for treatment vs. control groups',
+       subtitle = 'for p < 0.05') + 
+  theme_light() +
+  labs(fill = 'Treatment Group', y = "Chemical Name", x = "Log Peak Area") + 
+  guides(color = "none") +
+  facet_wrap(. ~ super_pathway, ncol = 2, scales = 'free_y')
+
+ggsave('plots/boxplot1.pdf', boxplot1, height = 9, width = 12)
 
 ################
 # VOLCANO PLOT:
@@ -158,11 +171,19 @@ volcano_plot <- volcano_df %>%
              alpha = 0.2, size = 1) + # will take the negative log of p-value
  #  geom_text(aes(x = mean.diff, y = neg_log_p_value, label = chem_id), nudge_y = 0.05) + 
   geom_hline(yintercept = -log(0.05, base=10), color = "red", linetype = "dashed") +
+  geom_label(label = 'p = 0.05', y = -log(0.05, base=10) + 0.05, x = -1.1,
+            color = 'red', size = 3.5) +
   geom_hline(yintercept = -log(0.1, base=10), color = "red", linetype = "dashed") +   # just adding another line. 
+  geom_label(label = 'p = 0.10', y = -log(0.10, base=10) + 0.05, x = -1.1,
+            color = 'red', size = 3.5) +
   xlim(-1.2, 1.2) + 
+  labs(y = expression(-log[10](p)), x = 'Difference in means') +
   theme_light()
   
 volcano_plot
+
+ggsave(filename = 'plots/volcano.pdf', volcano_plot,
+       height = 6, width = 8)
 
 
 ######
@@ -203,14 +224,31 @@ pca <- prcomp(peak_area_pca, scale. = FALSE) #TODO ask mentors!
 #TODO PCA with abundance levels with NAs - do i first center the data then scale it. Then replace with 0s? 
 pca_summary <- summary(pca)
 pca_importance <- pca_summary$importance # this is in a matrix.
+loadings <- pca$rotation
+loadings_organized <- loadings[order(abs(loadings[, 1]), decreasing = TRUE), ]
 
 group_membership_rownames <- group_membership %>% column_to_rownames(var = "PARENT_SAMPLE_NAME") 
 
 pca_plot_df <- merge(group_membership_rownames, as.data.frame(pca$x), by = 0)
 
-pca_plot_df %>% ggplot() + 
+importance_plot_df <- as.data.frame(t(pca_importance))
+importance_plot_df$PC <- 1:nrow(importance_plot_df)
+
+pca_12 <- pca_plot_df %>% 
+  mutate(TREATMENT = if_else(TREATMENT == 'G0',
+                             'Placebo',
+                             'Vit. D Supp.')) %>%
+  ggplot() + 
   geom_point(aes(x=PC2, y=PC1, color = TREATMENT)) + 
+  labs(color = 'Treatment Group',
+       y = paste0('PC1 (', round(100*importance_plot_df[1, 'Proportion of Variance'], 1),'%)'),
+       x = paste0('PC2 (', round(100*importance_plot_df[2, 'Proportion of Variance'], 1),'%)'))+ 
   theme_light()
+
+pca_12
+
+ggsave(filename = 'plots/pca_1_2.pdf', pca_12,
+       height = 5, width = 7)
 
 pca_plot_df %>% ggplot() + 
   geom_point(aes(x=PC3, y=PC1, color = TREATMENT)) + 
@@ -228,7 +266,8 @@ importance_plot_df %>%
   ggplot() + 
   geom_line(aes(x=PC, y=`Proportion of Variance`)) + 
   geom_point(aes(x=PC, y=`Proportion of Variance`)) + 
-  scale_x_continuous(breaks = 1:10)
+  scale_x_continuous(breaks = 1:10) +
+  theme_light()
 
 ######################################
 # MERGE ON THE PATHWAYS USING CHEMID #
@@ -285,13 +324,13 @@ for (subpathway in subpathway_names) {
     subpathway_row <- data.frame(sub_pathway = subpathway, pval = t.test_permanova$p.value)
     subpathway_pval <- rbind(subpathway_pval, subpathway_row)
   } else {
-    sp_permanova <- adonis2(peak_sp ~ TREATMENT, data = treatment_sp)
+    sp_distance_matrix <- vegdist(peak_sp, method = 'euclidean')
+    sp_permanova <- adonis2(sp_distance_matrix ~ unlist(treatment_sp))
+    # was: sp_permanova <- adonis2(peak_sp ~ TREATMENT, data = treatment_sp)
     subpathway_row <- data.frame(sub_pathway = subpathway, pval = sp_permanova$`Pr(>F)`[1])
     subpathway_pval <- rbind(subpathway_pval, subpathway_row) # we will join this subpathway_pval dataframe with the subpathway_df that we have in the circular plots.
   }
 }
-
-
 
 ########################
 # CIRCULAR PLOTS
@@ -354,7 +393,7 @@ ggplot() +
 
 results_df2 <- results_df %>% 
   drop_na(super_pathway) %>%
-  filter(super_pathway!='Xenobiotics') %>%
+  # filter(super_pathway!='Xenobiotics') %>%
   filter(super_pathway!='Partially Characterized Molecules')
 superpathway_list <- unique(results_df2$super_pathway)
 
@@ -372,7 +411,7 @@ for(superpathway in superpathway_list) {
     group_by(sub_pathway) %>% 
     summarize(min_x = min(i), max_x = max(i)) %>%
     left_join(subpathway_pval) %>%
-    mutate(significant = ifelse(pval <= 0.05, "p ≤ 0.05", "p > 0.05")) %>%
+    mutate(significant = ifelse(pval <= 0.10, "p ≤ 0.10", "p > 0.10")) %>% # was 0.05
     mutate(subpathway_label = ifelse(significant=='p ≤ 0.05', sub_pathway, sub_pathway),
            angle = 90-0.5*(min_x + max_x)*360/max(max_x))
   
@@ -404,7 +443,7 @@ for(superpathway in superpathway_list) {
     geom_rect(data=subpathway_df, # data coming from subpathway_df
               aes(xmin = min_x-0.1, ymin = -0.9, xmax = max_x+0.1, ymax = -0.8,
                   fill = significant)) +
-    scale_fill_manual(values = c('p > 0.05' = 'lightblue', 'p ≤ 0.05' = 'red')) +
+    scale_fill_manual(values = c('p > 0.10' = 'lightblue', 'p ≤ 0.10' = 'red')) +
     #geom_vline(data = subpathway_df, aes(xintercept = min_x-0.5))
     geom_segment(data = subpathway_df, aes(x = min_x-0.5, xend=min_x-0.5, y = -0.9, yend = 0.5), linewidth = 0.1) + 
     geom_text(data = subpathway_df, aes(x = 0.5*(min_x + max_x),
@@ -415,8 +454,23 @@ for(superpathway in superpathway_list) {
               size = 1.7) + 
     geom_text(data = subpathway_df, x = 0, y = -1.45, label = superpathway)
   
-  ggsave(filename = paste0('plots/',superpathway, '.pdf'), p_plot)
+  ggsave(filename = paste0('plots/',superpathway, '.pdf'), p_plot,
+         height = 8, width = 8)
   
 }
 
+# Heatmap with Dendrograms----
 
+heatmap_df <- peak_area %>%
+  column_to_rownames(var = 'PARENT_SAMPLE_NAME')
+group_membership_heatmap_df <- group_membership_rownames %>%
+  mutate(TREATMENT = if_else(TREATMENT == 'G0',
+                             'Placebo',
+                             'Vit. D Supp.'))
+heatmap_mx <- t(as.matrix(heatmap_df)) # Remove column 1 (Sample ID) before transposing
+
+pdf('plots/heatmap.pdf', width=8, height=6)
+pheatmap(heatmap_mx, annotation_col = group_membership_heatmap_df,
+         show_rownames = FALSE,
+         fontsize_col = 7)
+dev.off()
